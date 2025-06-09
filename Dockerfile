@@ -1,8 +1,8 @@
 # Dockerfile
 
 # 1. 使用官方 Python 映像作為基礎
-# 選擇一個適合您 Python 版本的映像，slim 版本比較小
-FROM python:3.9-slim
+# 選擇一個適合您 Python 版本的映像，slim 版本比較小；input_parser.py的程式碼使用了 Python 3.10 才有的新語法，所以使用3.11版本
+FROM python:3.11-slim
 
 # 2. 設定環境變數
 #   - PYTHONUNBUFFERED: 確保 Python 的輸出 (print, log) 直接送到終端，方便在 Cloud Run 中查看日誌
