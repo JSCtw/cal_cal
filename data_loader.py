@@ -14,21 +14,29 @@ class DataLoader:
             size_alias_path = os.path.join(self.data_folder, "size_alias.csv")
             drinks_alias_path = os.path.join(self.data_folder, "drinks_alias.csv")
 
-            # 使用 pd.read_csv 讀取資料，速度會快很多
-            self.drinks_df = pd.read_csv(drinks_path)
-            self.toppings_df = pd.read_csv(toppings_path)
-            self.sweet_setting_df = pd.read_csv(sweet_setting_path)
-            
-            self.brands_alias_map = self._load_alias_from_csv(brands_alias_path, "Brand_Alias_Name", "Brand_Standard_Name")
-            self.size_alias_map = self._load_alias_from_csv(size_alias_path, "Size_Alias", "Size")
-            self.drinks_alias_map = self._load_drink_alias_from_csv(drinks_alias_path)
+            # --- 隔離測試：一次只載入一個檔案 ---
 
-            print("[DataLoader] 所有 CSV 資料已成功載入。")
-        except FileNotFoundError as e:
-            print(f"[DataLoader錯誤] 找不到 CSV 檔案: {e}。請確認所有 6 個 CSV 檔案都存在於 '{self.data_folder}' 資料夾中。")
-            raise
+            print("[DataLoader - DEBUG] 測試：只載入 brands_alias.csv...")
+            self.brands_alias_map = self._load_alias_from_csv(brands_alias_path, "Brand_Alias_Name", "Brand_Standard_Name")
+            print("[DataLoader - DEBUG] brands_alias.csv 載入成功。")
+
+            # --- 暫時將其他 DataFrame 和 map 初始化為空的，避免程式出錯 ---
+            self.drinks_df = pd.DataFrame()
+            self.toppings_df = pd.DataFrame()
+            self.sweet_setting_df = pd.DataFrame()
+            self.size_alias_map = {}
+            self.drinks_alias_map = {}
+
+            # --- 以下為暫時註解掉的原始程式碼 ---
+            # self.drinks_df = pd.read_csv(drinks_path)
+            # self.toppings_df = pd.read_csv(toppings_path)
+            # self.sweet_setting_df = pd.read_csv(sweet_setting_path)
+            # self.size_alias_map = self._load_alias_from_csv(size_alias_path, "Size_Alias", "Size")
+            # self.drinks_alias_map = self._load_drink_alias_from_csv(drinks_alias_path)
+
+            # print("[DataLoader] 所有 CSV 資料已成功載入。")
         except Exception as e:
-            print(f"[DataLoader錯誤] CSV 資料載入過程中發生錯誤: {e}")
+            print(f"[DataLoader錯誤] 資料載入過程中發生錯誤: {e}")
             raise
 
     def _load_alias_from_csv(self, file_path, alias_col, standard_col):
