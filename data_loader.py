@@ -1,4 +1,4 @@
-# data_loader.py (格式修正版)
+# data_loader.py
 import pandas as pd
 import os
 
@@ -18,7 +18,7 @@ class DataLoader:
             self.drinks_df = pd.read_csv(drinks_path)
             self.toppings_df = pd.read_csv(toppings_path)
             self.sweet_setting_df = pd.read_csv(sweet_setting_path)
-
+            
             self.brands_alias_map = self._load_alias_from_csv(brands_alias_path, "Brand_Alias_Name", "Brand_Standard_Name")
             self.size_alias_map = self._load_alias_from_csv(size_alias_path, "Size_Alias", "Size")
             self.drinks_alias_map = self._load_drink_alias_from_csv(drinks_alias_path)
@@ -33,10 +33,7 @@ class DataLoader:
 
     def _load_alias_from_csv(self, file_path, alias_col, standard_col):
         df = pd.read_csv(file_path)
-        alias_map = {}
-        for _, row in df.iterrows():
-            alias_map[str(row[alias_col]).strip()] = str(row[standard_col]).strip()
-        return alias_map
+        return {str(row[alias_col]).strip(): str(row[standard_col]).strip() for _, row in df.iterrows()}
 
     def _load_drink_alias_from_csv(self, file_path):
         df = pd.read_csv(file_path)
@@ -46,15 +43,12 @@ class DataLoader:
             standard_drink_name = str(row["Standard_Drinks_Name"]).strip()
             if pd.notna(row["Alias_Drinks_Name"]):
                 aliases_string = str(row["Alias_Drinks_Name"]).strip()
-                individual_aliases = aliases_string.split(',')
-                for alias in individual_aliases:
+                for alias in aliases_string.split(','):
                     cleaned_alias = alias.strip()
                     if cleaned_alias:
-                        lookup_key = (brand_std_name, cleaned_alias)
-                        drink_aliases_map[lookup_key] = standard_drink_name
+                        drink_aliases_map[(brand_std_name, cleaned_alias)] = standard_drink_name
         return drink_aliases_map
 
-    # --- Getter 方法 ---
     def get_drinks_dataframe(self): return self.drinks_df
     def get_toppings_dataframe(self): return self.toppings_df
     def get_sweet_settings_dataframe(self): return self.sweet_setting_df
