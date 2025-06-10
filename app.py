@@ -1,94 +1,74 @@
-# app.py
+# app.py (最終除錯版本)
 import os
+import traceback  # <-- 匯入 traceback 模組，用於獲取詳細錯誤資訊
 from flask import Flask, request, abort
-from linebot.v3 import WebhookHandler
-from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage
-from linebot.v3.webhooks import MessageEvent, TextMessageContent
-from dotenv import load_dotenv
 
-# 匯入您自己的模組
-from data_loader import DataLoader
-from input_parser import UserInputParser
-from calorie_calculator import CalorieCalculator
-
-# --- 初始化 ---
-load_dotenv()
+# --- 應用程式和日誌記錄器初始化 ---
 app = Flask(__name__)
+app.logger.info("--- [除錯] app.py 開始執行 ---")
 
-# Line Bot SDK 設定
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN', '').strip()
-LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET', '').strip()
-configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
-handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# 建立我們核心服務的實例
+# --- 主體：將所有初始化過程包裹在一個大的 try...except 中 ---
+# 這個結構可以捕捉到任何在啟動階段發生的錯誤
 try:
+    # 逐一匯入並初始化您的模組，並在每一步打印日誌
+    app.logger.info("--- [除錯] 準備匯入自訂模組 ---")
+    
+    from data_loader import DataLoader
+    app.logger.info("--- [除錯] 成功匯入 DataLoader ---")
+
+    from input_parser import UserInputParser
+    app.logger.info("--- [除錯] 成功匯入 InputParser ---")
+
+    from calorie_calculator import CalorieCalculator
+    app.logger.info("--- [除錯] 成功匯入 CalorieCalculator ---")
+
+    # 開始初始化
+    app.logger.info("--- [除錯] 準備初始化 DataLoader... ---")
     data_loader = DataLoader(file_path="data/Nutrition_Facts.xlsx")
+    app.logger.info("--- [除錯] 成功初始化 DataLoader ---")
+
+    app.logger.info("--- [除錯] 準備初始化 InputParser... ---")
     input_parser = UserInputParser(data_loader)
+    app.logger.info("--- [除錯] 成功初始化 InputParser ---")
+
+    app.logger.info("--- [除錯] 準備初始化 CalorieCalculator... ---")
     calorie_calculator = CalorieCalculator(data_loader)
-    app.logger.info("所有服務模組已成功初始化。")
+    app.logger.info("--- [除錯] 成功初始化 CalorieCalculator ---")
+
+    # 初始化 Line SDK
+    from linebot.v3 import WebhookHandler
+    from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage
+    from linebot.v3.webhooks import MessageEvent, TextMessageContent
+    
+    LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN', '').strip()
+    LINE_CHANNEL_SECRET = os.getenv('LINE_CHANNEL_SECRET', '').strip()
+    configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
+    handler = WebhookHandler(LINE_CHANNEL_SECRET)
+    app.logger.info("--- [除錯] 成功初始化 Line SDK ---")
+
+    app.logger.info("--- [除錯] 所有模組初始化成功！應用程式準備就緒。---")
+
 except Exception as e:
-    app.logger.error(f"服務模組初始化失敗: {e}", exc_info=True)
-    # 在這種情況下，應用程式啟動失敗是合理的
-    data_loader = None
-    input_parser = None
-    calorie_calculator = None
+    # --- 這是最關鍵的部分 ---
+    # 如果在 try 區塊中發生任何錯誤，我們將其完整的 Traceback 資訊格式化
+    # 並作為一條非常明顯的 ERROR 日誌打印出來。
+    error_details = traceback.format_exc()
+    app.logger.error(f"\n\n!!!!!! 應用程式啟動時發生致命錯誤 !!!!!!\n\n{error_details}\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+    # 重新引發異常，讓容器知道啟動失敗了，但我們已經記錄下了關鍵資訊
+    raise
 
-
-# --- Webhook 路由 ---
+# --- Webhook 路由 (如果啟動成功，它才會正常運作) ---
 @app.route("/callback", methods=['POST'])
 def callback():
-    signature = request.headers['X-Line-Signature']
-    body = request.get_data(as_text=True)
-    try:
-        handler.handle(body, signature)
-    except InvalidSignatureError:
-        abort(400)
+    # ... (這裡的邏輯暫時不重要，因為錯誤發生在啟動階段) ...
     return 'OK'
 
-# --- 訊息事件處理 ---
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        user_input = event.message.text
-        
-        # 檢查服務是否已成功初始化
-        if not all([data_loader, input_parser, calorie_calculator]):
-            reply_text = "抱歉，機器人目前正在維護中，暫時無法提供服務。"
-        else:
-            try:
-                # 1. 呼叫 InputParser 進行解析
-                parsed_data = input_parser.parse(user_input)
-                
-                if parsed_data.get("error"):
-                    # 如果解析階段就出錯 (例如找不到品牌/飲品)
-                    reply_text = f"查無飲品：{parsed_data['error']}"
-                else:
-                    # 2. 呼叫 CalorieCalculator 進行計算
-                    result = calorie_calculator.calculate(parsed_data)
-                    
-                    if result:
-                        # 3. 組合成功的回覆
-                        calories = result["calories"]
-                        sugar = result["sugar"]
-                        reply_text = f"「{user_input}」\n熱量為 {calories} 大卡，糖量為 {sugar} 克"
-                    else:
-                        # 如果計算階段回傳 None (例如，找不到完全符合的飲品)
-                        reply_text = "查無此飲品，請確認品牌、品名、尺寸等資訊是否正確。"
+    # ... (這裡的邏輯暫時不重要) ...
+    pass
 
-            except Exception as e:
-                app.logger.error(f"處理訊息 '{user_input}' 時發生未預期的錯誤: {e}", exc_info=True)
-                reply_text = "抱歉，處理您的請求時發生了內部錯誤。"
-
-        # 4. 回覆訊息給使用者
-        line_bot_api.reply_message_with_http_info(
-            ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
-        )
-
-# --- 啟動伺服器 ---
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
-    # 在生產環境中，debug 應設為 False。Gunicorn 會處理好這一切。
     app.run(host='0.0.0.0', port=port, debug=False)
