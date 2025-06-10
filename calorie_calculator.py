@@ -1,73 +1,81 @@
-# input_parser.py
-import re
-from config import DEFAULT_SIZE, DEFAULT_ICE, ICE_OPTIONS
+# calorie_calculator.py
+import pandas as pd
 
-class UserInputParser:
+class CalorieCalculator:
     def __init__(self, data_loader):
         self.data_loader = data_loader
-        self.brands_alias_map = data_loader.get_brands_alias_map()
-        self.drinks_alias_map = data_loader.get_drinks_alias_map()
-        self.size_alias_map = data_loader.get_size_alias_map()
 
-    def parse(self, user_input: str) -> dict:
-        words = user_input.strip().split()
-        if not words:
-            return {}
-
-        # 1. 解析品牌 (必定是第一個詞)
-        brand_alias = words[0]
-        identified_brand = self.brands_alias_map.get(brand_alias)
-        if not identified_brand:
-            return {"error": "找不到品牌"}
-
-        # 2. 解析飲品 (必定是第二個詞)
-        drink_alias = words[1]
-        lookup_key = (identified_brand, drink_alias)
-        identified_drink = self.drinks_alias_map.get(lookup_key)
-        if not identified_drink:
-            # 如果別名找不到，嘗試將其作為標準名稱
-            if drink_alias in self.data_loader.get_drinks_dataframe()['Standard_Drinks_Name'].values:
-                identified_drink = drink_alias
-            else:
-                return {"error": "找不到飲品"}
-
-        # 3. 解析其他規格 (尺寸、冰量、甜度、配料)
-        other_words = words[2:]
-        identified_size = DEFAULT_SIZE
-        identified_ice = DEFAULT_ICE
-        identified_sweetness = None
-        identified_toppings = []
-
-        # 解析尺寸
-        for alias, std_size in self.size_alias_map.items():
-            if alias in user_input: # 在整個字串中尋找
-                identified_size = std_size
-                break
-
-        # 解析冰量
-        for alias, std_ice in ICE_OPTIONS.items():
-            if alias in user_input:
-                identified_ice = std_ice
-                break
+    def _get_drink_row(self, brand: str, drink: str, size: str, ice: str) -> pd.Series | None:
+        drinks_df = self.data_loader.get_drinks_dataframe()
         
-        # 解析甜度
-        sweetness_df = self.data_loader.get_sweet_settings_dataframe()
-        for sweet_level in sweetness_df['甜度'].unique():
-            if str(sweet_level) in user_input:
-                identified_sweetness = str(sweet_level)
-                break
+        # 主要查找
+        condition = (
+            (drinks_df['Brand_Standard_Name'] == brand) &
+            (drinks_df['Standard_Drinks_Name'] == drink) &
+            (drinks_df['Size'] == size) &
+            (drinks_df['冰量'] == ice)
+        )
+        result = drinks_df[condition]
         
-        # 解析配料
-        toppings_df = self.data_loader.get_toppings_dataframe()
-        for topping_name in toppings_df['Topping_Name'].unique():
-            if f"+{topping_name}" in user_input:
-                 identified_toppings.append(topping_name)
+        if not result.empty:
+            return result.iloc[0]
+            
+        # 熱飲回退邏輯
+        if ice == 'H':
+            condition_fallback = (
+                (drinks_df['Brand_Standard_Name'] == brand) &
+                (drinks_df['Standard_Drinks_Name'] == drink) &
+                (drinks_df['Size'] == size) &
+                (drinks_df['冰量'] == 'I') # 回退查找冰飲
+            )
+            result_fallback = drinks_df[condition_fallback]
+            if not result_fallback.empty:
+                return result_fallback.iloc[0]
+                
+        return None
+
+    def calculate(self, parsed_input: dict) -> dict | None:
+        base_drink_row = self._get_drink_row(
+            parsed_input["brand"],
+            parsed_input["drink"],
+            parsed_input["size"],
+            parsed_input["ice"]
+        )
+
+        if base_drink_row is None:
+            return None # 查無此飲品
+
+        # 1. 取得基礎值
+        final_calories = float(base_drink_row['熱量'])
+        final_sugar = float(base_drink_row['糖量'])
+
+        # 2. 甜度調整
+        sweetness_multiplier = 1.0 # 預設全糖
+        if parsed_input["sweetness"]:
+            sweet_df = self.data_loader.get_sweet_settings_dataframe()
+            # 確保比較時類型一致
+            sweet_row = sweet_df[sweet_df['甜度'].astype(str) == parsed_input["sweetness"]]
+            if not sweet_row.empty:
+                # 假設公式欄位直接是乘數
+                sweetness_multiplier = float(sweet_row.iloc[0]['公式'])
+        
+        original_sugar_calories = final_sugar * 4
+        adjusted_sugar = final_sugar * sweetness_multiplier
+        adjusted_sugar_calories = adjusted_sugar * 4
+        
+        final_calories = final_calories - original_sugar_calories + adjusted_sugar_calories
+        final_sugar = adjusted_sugar
+        
+        # 3. 配料疊加
+        if parsed_input["toppings"]:
+            toppings_df = self.data_loader.get_toppings_dataframe()
+            for topping_name in parsed_input["toppings"]:
+                topping_row = toppings_df[toppings_df['Topping_Name'] == topping_name]
+                if not topping_row.empty:
+                    final_calories += float(topping_row.iloc[0]['熱量'])
+                    final_sugar += float(topping_row.iloc[0]['糖量'])
 
         return {
-            "brand": identified_brand,
-            "drink": identified_drink,
-            "size": identified_size,
-            "ice": identified_ice,
-            "sweetness": identified_sweetness,
-            "toppings": identified_toppings,
+            "calories": round(final_calories),
+            "sugar": round(final_sugar, 1)
         }
