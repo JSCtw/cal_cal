@@ -49,6 +49,7 @@ class DataLoader:
                         drink_aliases_map[(brand_std_name, cleaned_alias)] = standard_drink_name
         return drink_aliases_map
 
+    # --- Getter 方法 ---
     def get_drinks_dataframe(self): return self.drinks_df
     def get_toppings_dataframe(self): return self.toppings_df
     def get_sweet_settings_dataframe(self): return self.sweet_setting_df

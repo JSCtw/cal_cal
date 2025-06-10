@@ -1,12 +1,12 @@
 # calorie_calculator.py
 import pandas as pd
+import re
 
 class CalorieCalculator:
     def __init__(self, data_loader):
         self.data_loader = data_loader
 
     def _get_drink_row(self, brand: str, drink: str, size: str, ice: str):
-        # ... (這個函式不變) ...
         drinks_df = self.data_loader.get_drinks_dataframe()
         condition = (
             (drinks_df['Brand_Standard_Name'] == brand) &
@@ -29,51 +29,46 @@ class CalorieCalculator:
         return None
 
     def calculate(self, parsed_input: dict) -> dict | None:
-        # ... (前面的 base_drink_row 查找不變) ...
         base_drink_row = self._get_drink_row(
             parsed_input["brand"], parsed_input["drink"],
             parsed_input["size"], parsed_input["ice"]
         )
         if base_drink_row is None:
-            print(f"[Calculator] 查無基礎飲品， parsed_input: {parsed_input}")
             return None
 
         try:
-            base_calories = pd.to_numeric(base_drink_row.get('熱量'), errors='coerce')
-            base_sugar = pd.to_numeric(base_drink_row.get('糖量'), errors='coerce')
+            base_calories = float(pd.to_numeric(base_drink_row.get('熱量'), errors='coerce'))
+            base_sugar = float(pd.to_numeric(base_drink_row.get('糖量'), errors='coerce'))
 
-            final_calories = 0.0 if pd.isna(base_calories) else float(base_calories)
-            final_sugar = 0.0 if pd.isna(base_sugar) else float(base_sugar)
+            final_calories = base_calories
+            final_sugar = base_sugar
             
-            # --- 甜度調整除錯 ---
-            sweetness_multiplier = 1.0
-            parsed_sweetness = parsed_input.get("sweetness")
-            print(f"[Calculator-DEBUG] 開始調整甜度。解析到的甜度為: '{parsed_sweetness}' (類型: {type(parsed_sweetness)})")
-
-            if parsed_sweetness:
+            # 甜度調整
+            sweetness_level = parsed_input.get("sweetness")
+            if sweetness_level:
+                category = "清心福全" if parsed_input["brand"] == "清心福全" else "一般"
                 sweet_df = self.data_loader.get_sweet_settings_dataframe()
-                # 使用 .strip() 確保比對時沒有多餘空格
-                sweet_row = sweet_df[sweet_df['甜度'].astype(str).str.strip() == parsed_sweetness]
-                
-                if not sweet_row.empty:
-                    multiplier_val = pd.to_numeric(sweet_row.iloc[0]['公式'], errors='coerce')
-                    if not pd.isna(multiplier_val):
-                        sweetness_multiplier = float(multiplier_val)
-                        print(f"[Calculator-DEBUG] 找到甜度設定，使用的乘數為: {sweetness_multiplier}")
-                else:
-                    print(f"[Calculator-DEBUG] 在 sweet_setting.csv 中找不到甜度 '{parsed_sweetness}' 的設定。")
-            
-            # ... (後續計算不變) ...
-            original_sugar_calories = final_sugar * 4
-            adjusted_sugar = final_sugar * sweetness_multiplier
-            final_calories = final_calories - original_sugar_calories + (adjusted_sugar * 4)
-            final_sugar = adjusted_sugar
-            
-            if parsed_input["toppings"]:
-                # ...
-                pass
-            
-            # ... (配料疊加邏輯不變) ...
+                condition = (
+                    (sweet_df['甜度'].astype(str) == sweetness_level) &
+                    (sweet_df['類別'].astype(str) == category)
+                )
+                sweet_rule = sweet_df[condition]
+
+                if not sweet_rule.empty:
+                    formula = str(sweet_rule.iloc[0]['公式']).strip()
+                    if "糖量" in formula:
+                        match = re.search(r'([\d.]+)\s*%', formula)
+                        if match:
+                            percentage_to_remove = float(match.group(1)) / 100.0
+                            
+                            sugar_to_remove = base_sugar * percentage_to_remove
+                            calories_to_remove = sugar_to_remove * 4
+                            
+                            final_sugar -= sugar_to_remove
+                            final_calories -= calories_to_remove
+                    # 如果公式是"熱量"或其他格式，則不進行調整，維持全糖值
+
+            # 配料疊加
             if parsed_input["toppings"]:
                 toppings_df = self.data_loader.get_toppings_dataframe()
                 for topping_name in parsed_input["toppings"]:
@@ -85,7 +80,7 @@ class CalorieCalculator:
             return {"calories": round(final_calories), "sugar": round(final_sugar, 1)}
 
         except Exception as e:
-            print(f"[Calculator ERROR] 在計算過程中發生嚴重錯誤: {e}")
+            print(f"[Calculator ERROR] 計算過程中發生錯誤: {e}")
             import traceback
             traceback.print_exc()
             return None

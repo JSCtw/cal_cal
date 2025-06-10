@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 # --- 初始化 ---
 app = Flask(__name__)
 data_loader, input_parser, calorie_calculator = None, None, None
+handler = None
+configuration = None
 
 try:
     load_dotenv()
@@ -28,16 +30,18 @@ try:
     handler = WebhookHandler(LINE_CHANNEL_SECRET)
     
     app.logger.info("所有服務模組已成功初始化。")
-except Exception:
+except Exception as e:
     app.logger.error(f"應用程式啟動時發生致命錯誤: \n{traceback.format_exc()}")
 
 # --- Webhook 路由 ---
 @app.route("/callback", methods=['POST'])
 def callback():
+    if not handler:
+        abort(500) # 如果初始化失敗，則服務不可用
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
     try:
-        if handler: handler.handle(body, signature)
+        handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
     return 'OK'
@@ -47,7 +51,7 @@ def callback():
 def handle_message(event):
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
-        user_input = event.message.text
+        user_input = event.message.text.strip()
         
         if not all([data_loader, input_parser, calorie_calculator]):
             reply_text = "抱歉，機器人目前正在維護中，暫時無法提供服務。"
@@ -55,7 +59,7 @@ def handle_message(event):
             try:
                 parsed_data = input_parser.parse(user_input)
                 if parsed_data.get("error"):
-                    reply_text = f"查無飲品：{parsed_data['error']}"
+                    reply_text = f"{parsed_data['error']}，請遵循「品牌 品名 [選項]」格式。"
                 else:
                     result = calorie_calculator.calculate(parsed_data)
                     if result:
