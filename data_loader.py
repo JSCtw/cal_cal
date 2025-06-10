@@ -1,34 +1,35 @@
-# data_loader.py (已更新為讀取 CSV)
+# data_loader.py (格式修正版)
 import pandas as pd
-import os # 匯入 os 模組來組合路徑
+import os
 
 class DataLoader:
     def __init__(self, data_folder="data"):
-    self.data_folder = data_folder
-    try:
-        # 定義所有 CSV 檔案的路徑
-        brands_alias_path = os.path.join(self.data_folder, "brands_alias.csv")
-        size_alias_path = os.path.join(self.data_folder, "size_alias.csv")
-        drinks_alias_path = os.path.join(self.data_folder, "drinks_alias.csv")
-        drinks_path = os.path.join(self.data_folder, "drinks.csv")
-        toppings_path = os.path.join(self.data_folder, "toppings.csv")
-        sweet_setting_path = os.path.join(self.data_folder, "sweet_setting.csv")
+        self.data_folder = data_folder
+        try:
+            # 定義所有 CSV 檔案的路徑
+            drinks_path = os.path.join(self.data_folder, "drinks.csv")
+            toppings_path = os.path.join(self.data_folder, "toppings.csv")
+            sweet_setting_path = os.path.join(self.data_folder, "sweet_setting.csv")
+            brands_alias_path = os.path.join(self.data_folder, "brands_alias.csv")
+            size_alias_path = os.path.join(self.data_folder, "size_alias.csv")
+            drinks_alias_path = os.path.join(self.data_folder, "drinks_alias.csv")
 
-        # --- 隔離測試：只載入一個檔案，其他用空的代替 ---
-        print("[DataLoader - DEBUG] 測試：只載入 brands_alias.csv...")
-        self.brands_alias_map = self._load_alias_from_csv(brands_alias_path, "Brand_Alias_Name", "Brand_Standard_Name")
-        print("[DataLoader - DEBUG] brands_alias.csv 載入成功。")
+            # 使用 pd.read_csv 讀取資料
+            self.drinks_df = pd.read_csv(drinks_path)
+            self.toppings_df = pd.read_csv(toppings_path)
+            self.sweet_setting_df = pd.read_csv(sweet_setting_path)
 
-        # --- 將其他資料初始化為空的，避免程式在其他地方出錯 ---
-        self.size_alias_map = {}
-        self.drinks_alias_map = {}
-        self.drinks_df = pd.DataFrame()
-        self.toppings_df = pd.DataFrame()
-        self.sweet_setting_df = pd.DataFrame()
+            self.brands_alias_map = self._load_alias_from_csv(brands_alias_path, "Brand_Alias_Name", "Brand_Standard_Name")
+            self.size_alias_map = self._load_alias_from_csv(size_alias_path, "Size_Alias", "Size")
+            self.drinks_alias_map = self._load_drink_alias_from_csv(drinks_alias_path)
 
-    except Exception as e:
-        print(f"[DataLoader錯誤] 資料載入過程中發生錯誤: {e}")
-        raise
+            print("[DataLoader] 所有 CSV 資料已成功載入。")
+        except FileNotFoundError as e:
+            print(f"[DataLoader錯誤] 找不到 CSV 檔案: {e}。請確認所有 6 個 CSV 檔案都存在於 '{self.data_folder}' 資料夾中。")
+            raise
+        except Exception as e:
+            print(f"[DataLoader錯誤] CSV 資料載入過程中發生錯誤: {e}")
+            raise
 
     def _load_alias_from_csv(self, file_path, alias_col, standard_col):
         df = pd.read_csv(file_path)
@@ -53,7 +54,7 @@ class DataLoader:
                         drink_aliases_map[lookup_key] = standard_drink_name
         return drink_aliases_map
 
-    # --- Getter 方法 (保持不變) ---
+    # --- Getter 方法 ---
     def get_drinks_dataframe(self): return self.drinks_df
     def get_toppings_dataframe(self): return self.toppings_df
     def get_sweet_settings_dataframe(self): return self.sweet_setting_df
