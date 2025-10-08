@@ -1,4 +1,4 @@
-# app.py (整合 Google Sheets 的完整版本)
+# app.py
 import os
 import traceback
 from flask import Flask, request, abort
@@ -46,14 +46,14 @@ try:
     app.logger.info("所有服務模組已成功初始化，使用 Google Sheets 作為資料來源。")
 
 except Exception as e:
-    # 如果在啟動的任何環節發生錯誤，記錄下來
+    # 如果在啟動的任何環節發生錯誤,記錄下來
     app.logger.error(f"應用程式啟動時發生致命錯誤: \n{traceback.format_exc()}")
 
 
 # --- Webhook 路由 ---
 @app.route("/callback", methods=['POST'])
 def callback():
-    # 如果 handler 在啟動時初始化失敗，則回傳 500 錯誤
+    # 如果 handler 在啟動時初始化失敗,則回傳 500 錯誤
     if not handler:
         app.logger.error("Webhook 請求失敗，因為 handler 未被成功初始化。")
         abort(500)
@@ -72,6 +72,34 @@ def handle_message(event):
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         user_input = event.message.text.strip()
+        
+        # --- 新增：手動更新資料指令 ---
+        if user_input == '更新資料':
+            if not data_loader:
+                reply_text = "❌ 資料載入器未初始化，無法更新資料。"
+            else:
+                try:
+                    # 重新載入 Google Sheets 資料
+                    data_loader.refresh()
+                    
+                    # 重新初始化依賴 data_loader 的模組
+                    global input_parser, calorie_calculator
+                    input_parser = UserInputParser(data_loader)
+                    calorie_calculator = CalorieCalculator(data_loader)
+                    
+                    reply_text = "✅ 資料已成功更新！所有新增的飲品資料現在可以查詢了。"
+                    app.logger.info("使用者觸發資料更新成功")
+                    
+                except Exception as e:
+                    reply_text = f"❌ 資料更新失敗：{str(e)}"
+                    app.logger.error(f"資料更新時發生錯誤: {e}", exc_info=True)
+            
+            # 回覆更新結果
+            line_bot_api.reply_message_with_http_info(
+                ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
+            )
+            return
+        # --- 手動更新資料指令結束 ---
         
         # 再次檢查服務是否已成功初始化
         if not all([data_loader, input_parser, calorie_calculator]):

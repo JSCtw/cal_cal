@@ -6,13 +6,19 @@ import json
 
 class DataLoader:
     def __init__(self, secret_key_json_str: str, sheet_name: str):
+        self.secret_key_json_str = secret_key_json_str
+        self.sheet_name = sheet_name
+        self.refresh()  # 啟動時先載入一次
+
+    def refresh(self):
+        """重新從 Google Sheets 載入所有資料"""
         try:
             # 將 JSON 字串解析為字典
-            secret_key_dict = json.loads(secret_key_json_str)
+            secret_key_dict = json.loads(self.secret_key_json_str)
             
             # 使用解析後的字典進行驗證
             gc = gspread.service_account_from_dict(secret_key_dict)
-            spreadsheet = gc.open(sheet_name)
+            spreadsheet = gc.open(self.sheet_name)
             
             # 讀取所有工作表並轉換為 DataFrame
             self.drinks_df = pd.DataFrame(spreadsheet.worksheet("Drinks").get_all_records())
@@ -37,10 +43,10 @@ class DataLoader:
                         if cleaned_alias:
                             self.drinks_alias_map[(brand_std_name, cleaned_alias)] = standard_drink_name
 
-            print("[DataLoader] 所有 Google Sheets 資料已成功載入。")
+            print("[DataLoader] 所有 Google Sheets 資料已成功重新載入。")
 
         except Exception as e:
-            print(f"[DataLoader錯誤] 從 Google Sheets 載入資料時發生錯誤: {e}")
+            print(f"[DataLoader錯誤] 重新載入資料時發生錯誤: {e}")
             raise
     
     # --- Getter 方法 ---
