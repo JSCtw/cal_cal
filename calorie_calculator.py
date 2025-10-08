@@ -68,7 +68,7 @@ class CalorieCalculator:
                             final_calories -= calories_to_remove
                     # 如果公式是"熱量"或其他格式，則不進行調整，維持全糖值
 
-            # 配料疊加
+            # 1. 現有的加配料邏輯 (完全不變)
             if parsed_input["toppings"]:
                 toppings_df = self.data_loader.get_toppings_dataframe()
                 for topping_name in parsed_input["toppings"]:
@@ -76,6 +76,19 @@ class CalorieCalculator:
                     if not topping_row.empty:
                         final_calories += float(topping_row.iloc[0]['熱量'])
                         final_sugar += float(topping_row.iloc[0]['糖量'])
+
+            # 2.【新增】減配料邏輯
+            if parsed_input.get("removed_toppings"):
+                toppings_df = self.data_loader.get_toppings_dataframe() # 可以重複使用
+                for topping_name in parsed_input["removed_toppings"]:
+                    topping_row = toppings_df[toppings_df['Topping_Name'] == topping_name]
+                    if not topping_row.empty:
+                        final_calories -= float(topping_row.iloc[0]['熱量'])
+                        final_sugar -= float(topping_row.iloc[0]['糖量'])
+
+            # 3.【新增】保護機制，防止熱量/糖量變為負數
+            final_calories = max(0, final_calories)
+            final_sugar = max(0, final_sugar)
 
             return {"calories": round(final_calories), "sugar": round(final_sugar, 1)}
 

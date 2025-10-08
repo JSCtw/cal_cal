@@ -47,14 +47,23 @@ class UserInputParser:
                 identified_sweetness = str(sweet_level)
                 break
         
+        # 1. 現有的加配料邏輯 (完全不變)
         identified_toppings = []
         toppings_df = self.data_loader.get_toppings_dataframe()
         for topping_name in toppings_df['Topping_Name'].unique():
             if f"+{topping_name}" in user_input:
                  identified_toppings.append(topping_name)
 
+         # 2.【新增】減配料邏輯
+        identified_removed_toppings = []
+        for topping_name in toppings_df['Topping_Name'].unique():
+            if f"-{topping_name}" in user_input:
+                 identified_removed_toppings.append(topping_name)
+
         return {
-            "brand": identified_brand, "drink": identified_drink,
-            "size": identified_size, "ice": identified_ice,
-            "sweetness": identified_sweetness, "toppings": identified_toppings,
-        }
+        "brand": identified_brand, "drink": identified_drink,
+        "size": identified_size, "ice": identified_ice,
+        "sweetness": identified_sweetness, 
+        "toppings": identified_toppings, # 維持不變
+        "removed_toppings": identified_removed_toppings, #【新增】的回傳欄位
+        }   
