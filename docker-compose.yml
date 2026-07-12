@@ -1,0 +1,32 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # 金鑰以檔案掛載，避免把整份 JSON 塞進環境變數的跳脫問題。
+      # 若你改在 .env 直接放 GOOGLE_SHEETS_API_KEY（單行 JSON），
+      # 可刪除下面的 environment 與 service_account.json 掛載兩行，程式會自動退回環境變數。
+      GOOGLE_SERVICE_ACCOUNT_FILE: /app/secrets/service_account.json
+    volumes:
+      - ./service_account.json:/app/secrets/service_account.json:ro
+      - cache_data:/app/cache
+    ports:
+      # 只綁定本機迴路介面，供伺服器上 curl 測試用，不對外開放
+      - "127.0.0.1:8080:8080"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  cache_data:
+  caddy_data:
+  caddy_config:

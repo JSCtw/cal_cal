@@ -48,6 +48,11 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
+# Secrets and local data
+service_account.json
+cache/
+sheet_cache.json
+
 # Environments
 .env
 .venv

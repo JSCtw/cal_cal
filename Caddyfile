@@ -1,0 +1,4 @@
+# Caddy 會自動向 Let's Encrypt 申請並自動續期 line.boba-cal.com 的 TLS 憑證
+line.boba-cal.com {
+    reverse_proxy bot:8080
+}

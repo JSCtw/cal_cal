@@ -1,99 +1,88 @@
 # calorie_calculator.py
-import pandas as pd
-import re
+"""依解析結果查表計算熱量與糖量。
+
+甜度：Brand_sweet_setting 的百分比為「剩餘糖量比例」p（依品牌不同），
+    最終糖量 = 糖量 × p
+    最終熱量 = 熱量 − 糖量 × (1 − p) × 4    （1g 糖 = 4 kcal）
+
+配料：需在 Toppings 表中該品牌欄位打 "V" 才可加減；熱飲查無資料時退回冰飲數值。
+回傳格式：{"ok": True, "calories": int, "sugar": float, "ice_fallback": bool}
+或 {"ok": False, "error": 錯誤訊息}
+"""
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _error(message):
+    return {"ok": False, "error": message}
+
 
 class CalorieCalculator:
     def __init__(self, data_loader):
-        self.data_loader = data_loader
+        self.loader = data_loader
 
-    def _get_drink_row(self, brand: str, drink: str, size: str, ice: str):
-        drinks_df = self.data_loader.get_drinks_dataframe()
-        condition = (
-            (drinks_df['Brand_Standard_Name'] == brand) &
-            (drinks_df['Standard_Drinks_Name'] == drink) &
-            (drinks_df['Size'] == size) &
-            (drinks_df['冰量'] == ice)
-        )
-        result = drinks_df[condition]
-        if not result.empty:
-            return result.iloc[0]
-        if ice == 'H':
-            condition_fallback = (
-                (drinks_df['Brand_Standard_Name'] == brand) &
-                (drinks_df['Standard_Drinks_Name'] == drink) &
-                (drinks_df['Size'] == size) & (drinks_df['冰量'] == 'I')
-            )
-            result_fallback = drinks_df[condition_fallback]
-            if not result_fallback.empty:
-                return result_fallback.iloc[0]
-        return None
+    def calculate(self, parsed: dict) -> dict:
+        brand, drink = parsed["brand"], parsed["drink"]
+        size, ice = parsed["size"], parsed["ice"]
 
-    def calculate(self, parsed_input: dict) -> dict | None:
-        base_drink_row = self._get_drink_row(
-            parsed_input["brand"], parsed_input["drink"],
-            parsed_input["size"], parsed_input["ice"]
-        )
-        if base_drink_row is None:
-            return None
+        row = self.loader.drinks_index.get((brand, drink, size, ice))
+        fallback = False
+        if row is None and ice == "H":
+            row = self.loader.drinks_index.get((brand, drink, size, "I"))
+            fallback = row is not None
+        if row is None:
+            variants = self.loader.drink_variants.get((brand, drink))
+            if variants:
+                sizes = "、".join(sorted({s for s, _ in variants}))
+                return _error(f"「{drink}」沒有 {size} 尺寸的資料，可選尺寸：{sizes}")
+            return _error(f"資料表中查無「{brand} {drink}」，請檢查 Drinks 工作表")
 
-        try:
-            base_calories = float(pd.to_numeric(base_drink_row.get('熱量'), errors='coerce'))
-            base_sugar = float(pd.to_numeric(base_drink_row.get('糖量'), errors='coerce'))
+        calories, sugar = row
+        if calories is None or sugar is None:
+            return _error(f"「{brand} {drink}」的熱量或糖量欄位不是有效數字，請檢查 Google Sheets")
 
-            final_calories = base_calories
-            final_sugar = base_sugar
-            
-            # 甜度調整
-            sweetness_level = parsed_input.get("sweetness")
-            if sweetness_level:
-                category = "清心福全" if parsed_input["brand"] == "清心福全" else "一般"
-                sweet_df = self.data_loader.get_sweet_settings_dataframe()
-                condition = (
-                    (sweet_df['甜度'].astype(str) == sweetness_level) &
-                    (sweet_df['類別'].astype(str) == category)
-                )
-                sweet_rule = sweet_df[condition]
+        sweetness = parsed.get("sweetness")
+        if sweetness:
+            brand_sweets = self.loader.sweet_map.get(brand, {})
+            ratio = brand_sweets.get(sweetness)
+            if ratio is None:
+                available = "、".join(s for s in self.loader.sweetness_order if s in brand_sweets)
+                return _error(f"{brand} 沒有提供「{sweetness}」，可選甜度：{available or '（無資料）'}")
+            calories -= sugar * (1 - ratio) * 4
+            sugar *= ratio
 
-                if not sweet_rule.empty:
-                    formula = str(sweet_rule.iloc[0]['公式']).strip()
-                    if "糖量" in formula:
-                        match = re.search(r'([\d.]+)\s*%', formula)
-                        if match:
-                            percentage_to_remove = float(match.group(1)) / 100.0
-                            
-                            sugar_to_remove = base_sugar * percentage_to_remove
-                            calories_to_remove = sugar_to_remove * 4
-                            
-                            final_sugar -= sugar_to_remove
-                            final_calories -= calories_to_remove
-                    # 如果公式是"熱量"或其他格式，則不進行調整，維持全糖值
+        for name, count in parsed.get("toppings", []):
+            delta = self._topping_values(brand, name)
+            if "error" in delta:
+                return _error(delta["error"])
+            calories += delta["calories"] * count
+            sugar += delta["sugar"] * count
 
-            # 1. 現有的加配料邏輯 (完全不變)
-            if parsed_input["toppings"]:
-                toppings_df = self.data_loader.get_toppings_dataframe()
-                for topping_name in parsed_input["toppings"]:
-                    topping_row = toppings_df[toppings_df['Topping_Name'] == topping_name]
-                    if not topping_row.empty:
-                        final_calories += float(topping_row.iloc[0]['熱量'])
-                        final_sugar += float(topping_row.iloc[0]['糖量'])
+        for name, count in parsed.get("removed_toppings", []):
+            delta = self._topping_values(brand, name)
+            if "error" in delta:
+                return _error(delta["error"])
+            calories -= delta["calories"] * count
+            sugar -= delta["sugar"] * count
 
-            # 2.【新增】減配料邏輯
-            if parsed_input.get("removed_toppings"):
-                toppings_df = self.data_loader.get_toppings_dataframe() # 可以重複使用
-                for topping_name in parsed_input["removed_toppings"]:
-                    topping_row = toppings_df[toppings_df['Topping_Name'] == topping_name]
-                    if not topping_row.empty:
-                        final_calories -= float(topping_row.iloc[0]['熱量'])
-                        final_sugar -= float(topping_row.iloc[0]['糖量'])
+        # +1e-9 補償二進位浮點誤差，讓 31.35 這類 .x5 值正確進位
+        return {
+            "ok": True,
+            "calories": round(max(0.0, calories) + 1e-9),
+            "sugar": round(max(0.0, sugar) + 1e-9, 1),
+            "ice_fallback": fallback,
+        }
 
-            # 3.【新增】保護機制，防止熱量/糖量變為負數
-            final_calories = max(0, final_calories)
-            final_sugar = max(0, final_sugar)
-
-            return {"calories": round(final_calories), "sugar": round(final_sugar, 1)}
-
-        except Exception as e:
-            print(f"[Calculator ERROR] 計算過程中發生錯誤: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+    def _topping_values(self, brand, name):
+        values = self.loader.toppings_map.get(name)
+        if values is None:
+            return {"error": f"找不到配料「{name}」，請確認名稱"}
+        if name not in self.loader.brand_toppings.get(brand, set()):
+            available = "、".join(sorted(self.loader.brand_toppings.get(brand, set())))
+            suffix = f"，可選配料：{available}" if available else ""
+            return {"error": f"{brand} 沒有提供配料「{name}」{suffix}"}
+        calories, sugar = values
+        if calories is None or sugar is None:
+            return {"error": f"配料「{name}」的熱量或糖量欄位不是有效數字，請檢查 Google Sheets"}
+        return {"calories": calories, "sugar": sugar}

@@ -11,5 +11,13 @@ venv/
 .env
 *.DS_Store
 Dockerfile
+docker-compose.yml
+Caddyfile
 .dockerignore
 README.md
+docs/
+tests/
+scripts/
+service_account.json
+cache/
+sheet_cache.json
